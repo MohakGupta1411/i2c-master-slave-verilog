@@ -1,4 +1,3 @@
-
 module i2c_master(
     input clk,
     input areset,
@@ -33,16 +32,17 @@ localparam IDLE       = 4'd0,
 reg [3:0] state;
 reg [9:0] divider;
 reg [2:0] bit_count;
+
 reg [7:0] address_byte;
 reg [7:0] saved_data;
 reg saved_rw;
+
 reg sda_drive_low;
 reg [7:0] rx_shift;
-
-// This signal records whether the address was NACKed.
 reg ack_error;
 
 assign sda = sda_drive_low ? 1'b0 : 1'bz;
+
 assign busy = (state != IDLE);
 
 always @(posedge clk or posedge areset) begin
@@ -79,47 +79,53 @@ always @(posedge clk or posedge areset) begin
 
         case (state)
 
+            // Generate START: SDA falls while SCL is HIGH.
             START_A: begin
-                scl           <= 1;
-                sda_drive_low <= 1;
+                scl           <= 1'b1;
+                sda_drive_low <= 1'b1;
                 state         <= START_B;
             end
 
+            // Pull SCL LOW before transmitting the address.
             START_B: begin
-                scl           <= 0;
-                sda_drive_low <= 1;
+                scl           <= 1'b0;
+                sda_drive_low <= 1'b1;
                 state         <= ADDR_SETUP;
             end
 
+            // Set up each address bit while SCL is LOW.
             ADDR_SETUP: begin
-                scl           <= 0;
+                scl           <= 1'b0;
                 sda_drive_low <= ~address_byte[bit_count];
                 state         <= ADDR_HIGH;
             end
 
+            // Clock the address bit.
             ADDR_HIGH: begin
-                scl <= 1;
+                scl <= 1'b1;
 
-                if (bit_count == 0)
+                if (bit_count == 0) begin
                     state <= ACK_SETUP;
+                end
                 else begin
                     bit_count <= bit_count - 1'b1;
                     state     <= ADDR_SETUP;
                 end
             end
 
+            // Release SDA so the slave can acknowledge.
             ACK_SETUP: begin
-                scl           <= 0;
-                sda_drive_low <= 0;
+                scl           <= 1'b0;
+                sda_drive_low <= 1'b0;
                 state         <= ACK_HIGH;
             end
 
+            // Sample the address ACK/NACK.
             ACK_HIGH: begin
-                scl <= 1;
+                scl <= 1'b1;
 
-                // ACK is SDA = 0; NACK is SDA = 1.
                 if (sda !== 1'b0) begin
-                    ack_error <= 1;
+                    ack_error <= 1'b1;
                     state     <= STOP_A;
                 end
                 else begin
@@ -128,25 +134,26 @@ always @(posedge clk or posedge areset) begin
                 end
             end
 
+            // Transmit or receive one data bit.
             DATA_SETUP: begin
-                scl <= 0;
+                scl <= 1'b0;
 
-                if (saved_rw == 0)
+                if (saved_rw == 1'b0)
                     sda_drive_low <= ~saved_data[bit_count];
                 else
-                    sda_drive_low <= 0;
+                    sda_drive_low <= 1'b0;
 
                 state <= DATA_HIGH;
             end
 
             DATA_HIGH: begin
-                scl <= 1;
+                scl <= 1'b1;
 
-                if (saved_rw == 1)
+                if (saved_rw == 1'b1)
                     rx_shift[bit_count] <= sda;
 
                 if (bit_count == 0) begin
-                    if (saved_rw == 1)
+                    if (saved_rw == 1'b1)
                         data_out <= {rx_shift[7:1], sda};
 
                     state <= MACK_SETUP;
@@ -157,44 +164,51 @@ always @(posedge clk or posedge areset) begin
                 end
             end
 
+            // Release SDA for the ninth clock after the data byte.
+            // In a write transaction, this allows the slave to ACK.
+            // In a read transaction, this is where the master ACK/NACK
+            // would be driven; this simple controller releases SDA.
             MACK_SETUP: begin
-                scl           <= 0;
-                sda_drive_low <= 0;
+                scl           <= 1'b0;
+                sda_drive_low <= 1'b0;
                 state         <= MACK_HIGH;
             end
 
             MACK_HIGH: begin
-                scl   <= 1;
+                scl   <= 1'b1;
                 state <= STOP_A;
             end
 
+            // Prepare STOP while SCL is LOW.
             STOP_A: begin
-                scl           <= 0;
-                sda_drive_low <= 1;
+                scl           <= 1'b0;
+                sda_drive_low <= 1'b1;
                 state         <= STOP_B;
             end
 
+            // Raise SCL while SDA remains LOW.
             STOP_B: begin
-                scl           <= 1;
-                sda_drive_low <= 1;
+                scl           <= 1'b1;
+                sda_drive_low <= 1'b1;
                 state         <= STOP_C;
             end
 
+            // Release SDA while SCL is HIGH to generate STOP.
             STOP_C: begin
-                scl           <= 1;
-                sda_drive_low <= 0;
+                scl           <= 1'b1;
+                sda_drive_low <= 1'b0;
                 state         <= DONE;
             end
 
             DONE: begin
-                scl           <= 1;
-                sda_drive_low <= 0;
+                scl           <= 1'b1;
+                sda_drive_low <= 1'b0;
                 state         <= IDLE;
             end
 
             default: begin
-                scl           <= 1;
-                sda_drive_low <= 0;
+                scl           <= 1'b1;
+                sda_drive_low <= 1'b0;
                 state         <= IDLE;
             end
 
