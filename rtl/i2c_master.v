@@ -11,8 +11,9 @@ module i2c_master(
     inout sda
 );
 
-parameter integer HALF_PERIOD = 500;
+parameter integer HALF_PERIOD = 500; // For approximately 100 kHz SCL at 100 MHz
 
+// FSM states
 localparam IDLE       = 4'd0,
            START_A    = 4'd1,
            START_B    = 4'd2,
@@ -41,6 +42,7 @@ reg sda_drive_low;
 reg [7:0] rx_shift;
 reg ack_error;
 
+// Open-drain SDA: drive LOW or release the line
 assign sda = sda_drive_low ? 1'b0 : 1'bz;
 
 assign busy = (state != IDLE);
@@ -65,7 +67,7 @@ always @(posedge clk or posedge areset) begin
         sda_drive_low <= 0;
 
         if (enable) begin
-            address_byte <= {addr, rw};
+            address_byte <= {addr, rw}; // Append the R/W bit
             saved_data   <= data_in;
             saved_rw     <= rw;
             bit_count    <= 7;
@@ -79,48 +81,44 @@ always @(posedge clk or posedge areset) begin
 
         case (state)
 
-            // Generate START: SDA falls while SCL is HIGH.
+            // START: SDA falls while SCL is HIGH
             START_A: begin
                 scl           <= 1'b1;
                 sda_drive_low <= 1'b1;
                 state         <= START_B;
             end
 
-            // Pull SCL LOW before transmitting the address.
             START_B: begin
                 scl           <= 1'b0;
                 sda_drive_low <= 1'b1;
                 state         <= ADDR_SETUP;
             end
 
-            // Set up each address bit while SCL is LOW.
+            // Set up each address bit
             ADDR_SETUP: begin
                 scl           <= 1'b0;
                 sda_drive_low <= ~address_byte[bit_count];
                 state         <= ADDR_HIGH;
             end
 
-            // Clock the address bit.
             ADDR_HIGH: begin
                 scl <= 1'b1;
 
-                if (bit_count == 0) begin
+                if (bit_count == 0)
                     state <= ACK_SETUP;
-                end
                 else begin
                     bit_count <= bit_count - 1'b1;
                     state     <= ADDR_SETUP;
                 end
             end
 
-            // Release SDA so the slave can acknowledge.
+            // Release SDA for the slave ACK/NACK
             ACK_SETUP: begin
                 scl           <= 1'b0;
                 sda_drive_low <= 1'b0;
                 state         <= ACK_HIGH;
             end
 
-            // Sample the address ACK/NACK.
             ACK_HIGH: begin
                 scl <= 1'b1;
 
@@ -134,7 +132,7 @@ always @(posedge clk or posedge areset) begin
                 end
             end
 
-            // Transmit or receive one data bit.
+            // Send data or release SDA to receive data
             DATA_SETUP: begin
                 scl <= 1'b0;
 
@@ -164,10 +162,7 @@ always @(posedge clk or posedge areset) begin
                 end
             end
 
-            // Release SDA for the ninth clock after the data byte.
-            // In a write transaction, this allows the slave to ACK.
-            // In a read transaction, this is where the master ACK/NACK
-            // would be driven; this simple controller releases SDA.
+            // Release SDA during the ninth clock
             MACK_SETUP: begin
                 scl           <= 1'b0;
                 sda_drive_low <= 1'b0;
@@ -179,21 +174,20 @@ always @(posedge clk or posedge areset) begin
                 state <= STOP_A;
             end
 
-            // Prepare STOP while SCL is LOW.
+            // Prepare STOP
             STOP_A: begin
                 scl           <= 1'b0;
                 sda_drive_low <= 1'b1;
                 state         <= STOP_B;
             end
 
-            // Raise SCL while SDA remains LOW.
             STOP_B: begin
                 scl           <= 1'b1;
                 sda_drive_low <= 1'b1;
                 state         <= STOP_C;
             end
 
-            // Release SDA while SCL is HIGH to generate STOP.
+            // STOP: SDA rises while SCL is HIGH
             STOP_C: begin
                 scl           <= 1'b1;
                 sda_drive_low <= 1'b0;
