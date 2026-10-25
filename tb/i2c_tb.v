@@ -1,4 +1,3 @@
-
 `timescale 1ns/1ns
 
 module i2c_tb;
@@ -18,7 +17,7 @@ module i2c_tb;
     integer tests_passed;
     integer tests_failed;
 
-    // Instantiate I2C master
+    // Instantiate master and slave
     i2c_master master(
         .clk(clk),
         .areset(areset),
@@ -32,16 +31,15 @@ module i2c_tb;
         .busy(busy)
     );
 
-    // Instantiate I2C slave
     i2c_slave slave(
         .scl(scl),
         .sda(sda)
     );
 
-    // 100 MHz system clock
+    // 100 MHz clock
     always #5 clk = ~clk;
 
-    // Write one byte, read it back, and compare
+    // Write a byte, read it back, and compare
     task test_write_read;
         input [7:0] test_byte;
         begin
@@ -49,7 +47,7 @@ module i2c_tb;
             $display("----------------------------------------");
             $display("Testing write/read data = 0x%02h", test_byte);
 
-            // WRITE transaction
+            // Write transaction
             @(negedge clk);
             addr = 7'b1010111;
             data_in = test_byte;
@@ -63,7 +61,7 @@ module i2c_tb;
             wait (busy === 1'b0);
             #100;
 
-            // READ transaction
+            // Read transaction
             @(negedge clk);
             addr = 7'b1010111;
             rw = 1'b1;
@@ -89,7 +87,7 @@ module i2c_tb;
         end
     endtask
 
-    // Main test sequence
+    // Run all test cases
     initial begin
         clk = 1'b0;
         areset = 1'b1;
@@ -101,24 +99,24 @@ module i2c_tb;
         tests_passed = 0;
         tests_failed = 0;
 
-        // Reset
+        // Apply reset
         #100;
         areset = 1'b0;
         #100;
 
-        // Four valid-address write/read tests
+        // Test different data patterns
         test_write_read(8'hAA);
         test_write_read(8'h3C);
         test_write_read(8'h55);
         test_write_read(8'h00);
 
-        // Incorrect-address test
+        // Test an incorrect slave address
         $display("");
         $display("----------------------------------------");
         $display("Testing incorrect slave address");
 
         @(negedge clk);
-        addr = 7'b1010001;  // Deliberately incorrect address
+        addr = 7'b1010001;
         rw = 1'b0;
         data_in = 8'hA5;
         enable = 1'b1;
@@ -126,12 +124,11 @@ module i2c_tb;
         @(negedge clk);
         enable = 1'b0;
 
-        // Wait for this transaction to start and finish
         wait (busy === 1'b1);
         wait (busy === 1'b0);
         #100;
 
-        // Check whether the master detected the missing address ACK.
+        // Check whether the missing ACK was detected
         if (master.ack_error === 1'b1) begin
             $display("PASS: Incorrect address detected (NACK).");
             tests_passed = tests_passed + 1;
@@ -141,7 +138,7 @@ module i2c_tb;
             tests_failed = tests_failed + 1;
         end
 
-        // Final summary
+        // Display test results
         $display("");
         $display("========================================");
         $display("I2C TEST SUMMARY");
@@ -157,7 +154,7 @@ module i2c_tb;
         $finish;
     end
 
-    // Global simulation timeout
+    // Stop simulation if it takes too long
     initial begin
         #5000000;
         $display("FAIL: Global simulation timeout.");
